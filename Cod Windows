@@ -1,0 +1,109 @@
+#include <windows.h>
+#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+bool isPrime(int n) {
+if (n < 2) return false;
+for (int i = 2; i * i <= n; i++)
+if (n % i == 0) return false;
+return true;
+}
+vector<int> findPrimes(int a, int b) {
+vector<int> primes;
+for (int i = a; i <= b; i++)
+if (isPrime(i)) primes.push_back(i);
+return primes;
+}
+int childMode(int start, int end) {
+vector<int> primes = findPrimes(start, end);
+for (int p : primes)
+cout << p << " ";
+cout << -1 << " "; // marcaj sfarsit
+return 0;
+}
+int parentMode() {
+const int NPROCS = 10;
+const int MAX = 10000;
+const int STEP = MAX / NPROCS;
+HANDLE hRead[NPROCS], hWrite[NPROCS];
+SECURITY_ATTRIBUTES sa;
+sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+sa.bInheritHandle = TRUE;
+sa.lpSecurityDescriptor = NULL;
+STARTUPINFO si;
+PROCESS_INFORMATION pi[NPROCS];
+char moduleName[MAX_PATH];
+GetModuleFileNameA(NULL, moduleName, MAX_PATH);
+for (int i = 0; i < NPROCS; ++i) {
+if (!CreatePipe(&hRead[i], &hWrite[i], &sa, 0)) {
+cerr << "CreatePipe error\n";
+return 1;
+}
+// citirea nu trebuie mostenita
+SetHandleInformation(hRead[i], HANDLE_FLAG_INHERIT, 0);
+int start = i * STEP + 1;
+int end = (i == NPROCS - 1) ? MAX : (i + 1) * STEP;
+string cmd =
+string("\"") + moduleName + "\" child " +
+to_string(start) + " " + to_string(end);
+ZeroMemory(&si, sizeof(si));
+si.cb = sizeof(si);
+si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+si.hStdOutput = hWrite[i];
+si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+si.dwFlags = STARTF_USESTDHANDLES;
+ZeroMemory(&pi[i], sizeof(pi[i]));
+if (!CreateProcessA(
+NULL,
+cmd.data(),
+NULL,
+NULL,
+TRUE,
+0,
+NULL,
+NULL,
+&si,
+&pi[i]
+)) {
+cerr << "CreateProcess error\n";
+return 1;
+}
+CloseHandle(hWrite[i]);
+}
+cout << "Numere prime intre 1 si 10000:\n";
+for (int i = 0; i < NPROCS; ++i) {
+char buffer[4096];
+DWORD bytesRead;
+string collected;
+while (ReadFile(hRead[i], buffer, sizeof(buffer)-1, &bytesRead, NULL) && bytesRead > 0) {
+buffer[bytesRead] = '\0';
+collected += buffer;
+}
+int pos = 0;
+while (pos < collected.size()) {
+int next = collected.find(' ', pos);
+if (next == string::npos) next = collected.size();
+int val = stoi(collected.substr(pos, next - pos));
+if (val == -1) break;
+cout << val << " ";
+pos = next + 1;
+}
+CloseHandle(hRead[i]);
+}
+cout << endl;
+for (int i = 0; i < NPROCS; ++i) {
+WaitForSingleObject(pi[i].hProcess, INFINITE);
+CloseHandle(pi[i].hProcess);
+CloseHandle(pi[i].hThread);
+}
+return 0;
+}
+int main(int argc, char* argv[]) {
+if (argc == 4 && string(argv[1]) == "child") {
+int start = stoi(argv[2]);
+int end = stoi(argv[3]);
+return childMode(start, end);
+}
+return parentMode();
+}
